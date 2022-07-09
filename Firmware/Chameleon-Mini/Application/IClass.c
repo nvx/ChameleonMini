@@ -465,7 +465,7 @@ uint16_t IClassAppProcess(uint8_t *FrameBuf, uint16_t FrameBytes) {
             IClassDoTagMAC2(CipherState, FrameBuf + 1, FrameBuf, CurrentKey);
             return ISO15693_APP_EARLY_SEND;
         case ICLASS_CMD_UPDATE: // ADDRESS(1) DATA(8) SIGN(4)|CRC16(2)
-            if ((FrameBytes != 11 && FrameBytes != 13) || State != STATE_SELECTED) {
+            if ((FrameBytes != 12 && FrameBytes != 14) || State != STATE_SELECTED) {
                 return ISO15693_APP_NO_RESPONSE;
             }
 
@@ -501,11 +501,8 @@ uint16_t IClassAppProcess(uint8_t *FrameBuf, uint16_t FrameBytes) {
 
             uint8_t blockOffset = FrameBuf[1] * ICLASS_BLOCK_SIZE;
             uint8_t block[ICLASS_BLOCK_SIZE];
-            if (!persMode && (FrameBuf[1] == ICLASS_BLOCK_KD || FrameBuf[1] == ICLASS_BLOCK_KD)) {
-                MemoryReadBlock(block, blockOffset, ICLASS_BLOCK_SIZE);
-                for (uint8_t i = 0; i < sizeof(ICLASS_BLOCK_SIZE); i++)
-                    block[i] ^= FrameBuf[i+2];
-            } else if (FrameBuf[1] == ICLASS_BLOCK_CFG) {
+            switch (FrameBuf[1]) {
+            case ICLASS_BLOCK_CFG:
                 block[0] = cfgBlock[0]; // Applications Limit
                 block[1] = cfgBlock[1] & FrameBuf[3]; // OTP
                 block[2] = cfgBlock[2] & FrameBuf[4]; // OTP
@@ -525,15 +522,25 @@ uint16_t IClassAppProcess(uint8_t *FrameBuf, uint16_t FrameBytes) {
                     // Fuses allows setting Crypt1/0 from 1 to 0 only during application mode
                     block[7] &= FrameBuf[9] | ~ICLASS_FUSE_CRYPT10;
                 }
-            } else if (FrameBuf[1] == ICLASS_BLOCK_EPURSE) {
+                break;
+            case ICLASS_BLOCK_EPURSE:
                 // ePurse updates swap first and second half of the block each update
                 memcpy(block+4, FrameBuf+2, 4);
                 memcpy(block, FrameBuf+6, 4);
-            } else {
+                break;
+            case ICLASS_BLOCK_KD:
+            case ICLASS_BLOCK_KC:
+                if (!persMode) {
+                    MemoryReadBlock(block, blockOffset, ICLASS_BLOCK_SIZE);
+                    for (uint8_t i = 0; i < sizeof(ICLASS_BLOCK_SIZE); i++)
+                        block[i] ^= FrameBuf[i+2];
+                    break;
+                }
+                // fallthrough to default case when personalisation mode
+            default:
                 memcpy(block, FrameBuf+2, ICLASS_BLOCK_SIZE);
+                break;
             }
-
-            // TODO: Epurse swapping first/second half
 
             MemoryWriteBlock(block, blockOffset, ICLASS_BLOCK_SIZE);
 
